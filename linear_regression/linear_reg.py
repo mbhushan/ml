@@ -255,15 +255,11 @@ def linear_wmape(file_names):
         print('Scores: %s' % scores)
         print('WMAPE: %.3f' % (sum(scores) / float(len(scores))))
 
+
 def main():
     file_names = ['data/winequality-white.csv', 'data/winequality-red.csv']
-    # linear_rmse(file_names)
     linear_wmape(file_names)
-    # predict_test()
-    # calculate_coeff()
-    # rows = load_csv(fname)
-    # for r in range(5):
-    #     print (rows[r])
+
 
 if __name__ == '__main__':
     main()
