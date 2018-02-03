@@ -3,6 +3,7 @@ from random import seed
 from random import randrange
 from csv import reader
 from math import sqrt
+import numpy as np
 
 
 # Load a CSV file
@@ -35,6 +36,19 @@ def dataset_minmax(dataset):
         minmax.append([value_min, value_max])
     return minmax
 
+# Find the min and max values for each column
+def dataset_normalize_np(dataset):
+    minmax = list()
+    for i in range(len(dataset[0])):
+        col_values = [row[i] for row in dataset]
+        norm = np.linalg.norm(col_values)
+        col_values = col_values / norm
+        j = 0
+        for row in dataset:
+            row[i] = col_values[j]
+            j += 1
+    return dataset
+
 
 # Rescale dataset columns to the range 0-1
 def normalize_dataset(dataset, minmax):
@@ -65,7 +79,7 @@ def coefficients_sgd(train, learning_rate, num_epoch):
             coeff[0] = coeff[0] - learning_rate * error
             for i in range(len(row)-1):
                 coeff[i+1] = coeff[i+1] - learning_rate * error * row[i]
-        print('>epoch=%d, lrate=%.3f, error=%.3f' % (epoch, learning_rate, sum_error))
+        #print('>epoch=%d, lrate=%.3f, error=%.3f' % (epoch, learning_rate, sum_error))
     return coeff
 
 
@@ -80,14 +94,15 @@ def coefficients_sgd_wmape(train, learning_rate, num_epoch):
             # if (row[-1] + yhat) == 0:
             #     error = 1
             # else:
-            error = ((abs(row[-1] - yhat)*2) / abs(row[-1] + yhat)) / len(train)
+            error = ((abs(row[-1] - yhat)) / abs(row[-1] + yhat)) / len(train)
             # if error > 100 or error < 0:
             #     error = 1
             sum_error += error
             coeff[0] = coeff[0] - learning_rate * error
             for i in range(len(row)-1):
-                coeff[i+1] = coeff[i+1] - learning_rate * error * row[i]
-        print('>epoch=%d, lrate=%.3f, error=%.3f' % (epoch, learning_rate, sum_error))
+                coeff[i+1] = (coeff[i+1] - (learning_rate * sum_error)) / len(train)
+        # print('>epoch=%d, lrate=%.3f, error=%.3f' % (epoch, learning_rate, sum_error))
+    print('wMAPE Coeff: ' + str(coeff) )
     return coeff
 
 
@@ -128,7 +143,15 @@ def wmape_metric(actual, predicted):
     sum_error = 0.0
     for i in range(len(actual)):
         if actual[i] != 0:
-            sum_error += (abs(actual[i] - predicted[i])*2) / abs(actual[i] + predicted[i])
+            sum_error += (abs(actual[i] - predicted[i])) / abs(actual[i] + predicted[i])
+    mean_error = sum_error / float(len(actual))
+    return mean_error
+
+def wighted_mape_metric(actual, predicted, coeff):
+    sum_error = 0.0
+    for i in range(len(actual)):
+        if actual[i] != 0:
+            sum_error += ((abs(actual[i] - predicted[i])) / abs(actual[i] + predicted[i]))/float(len(actual))
     mean_error = sum_error / float(len(actual))
     return mean_error
 
@@ -166,10 +189,11 @@ def evaluate_algorithm_wmape(dataset, algorithm, n_folds, *args):
             row_copy = list(row)
             test_set.append(row_copy)
             row_copy[-1] = None
-        predicted = algorithm(train_set, test_set, *args)
+        predicted, coef = algorithm(train_set, test_set, *args)
         actual = [row[-1] for row in fold]
-        rmse = wmape_metric(actual, predicted)
-        scores.append(rmse)
+        # mape = wmape_metric(actual, predicted)
+        mape = wighted_mape_metric(actual, predicted, coef)
+        scores.append(mape)
     return scores
 
 # Linear Regression Algorithm With Stochastic Gradient Descent
@@ -189,7 +213,7 @@ def linear_regression_sgd_wmape(train, test, l_rate, n_epoch):
     for row in test:
         yhat = predict(row, coef)
         predictions.append(yhat)
-    return(predictions)
+    return(predictions, coef)
 
 
 def predict_test():
@@ -210,6 +234,7 @@ def linear_reg(filename):
     # normalize
     minmax = dataset_minmax(dataset)
     normalize_dataset(dataset, minmax)
+    # dataset = dataset_normalize_np(dataset) # normalize with numpy (np.linalg.norm)
     # evaluate algorithm
     n_folds = 5
     l_rate = 0.0255
@@ -227,39 +252,45 @@ def linear_reg_wmape(filename):
         str_column_to_float(dataset, i)
     # normalize
     minmax = dataset_minmax(dataset)
-    normalize_dataset(dataset, minmax)
+    # normalize_dataset(dataset, minmax)
+    dataset = dataset_normalize_np(dataset) # normalize with numpy (np.linalg.norm)
     # evaluate algorithm
     n_folds = 5
-    l_rate = 0.0915
+    l_rate = 0.1
     n_epoch = 50
     scores = evaluate_algorithm_wmape(dataset, linear_regression_sgd_wmape, n_folds, l_rate, n_epoch)
     return scores
 
 
 def linear_rmse(file_names):
-    scores_list = list()
     for fname in file_names:
-        score = linear_reg(fname)
-        scores_list.append(score)
-    for scores in scores_list:
+        scores = linear_reg(fname)
+        print ('Data set: ' + fname)
         print('Scores: %s' % scores)
         print('Mean RMSE: %.3f' % (sum(scores) / float(len(scores))))
 
 
-def linear_wmape(file_names):
-    scores_list = list()
-    for fname in file_names:
-        score = linear_reg_wmape(fname)
-        scores_list.append(score)
-    for scores in scores_list:
-        print('Scores: %s' % scores)
-        print('WMAPE: %.3f' % (sum(scores) / float(len(scores))))
+def linear_wmape(file_name):
+    scores = linear_reg_wmape(file_name)
+    print ('Data set: ' + file_name)
+    print('Scores: %s' % scores)
+    print('WMAPE: %.5f' % (sum(scores) / float(len(scores))))
 
 
 def main():
-    file_names = ['data/winequality-white.csv', 'data/winequality-red.csv']
-    linear_wmape(file_names)
+    file_names = ['data/winequality-white.csv', 'data/winequality-red.csv', 'data/training_data.csv']
+    # linear_rmse(file_names)
+    for fname in file_names:
+        linear_wmape(fname)
 
 
 if __name__ == '__main__':
     main()
+
+#
+# Use the winequality-red dataset from UCI Machine Learning Repository (instead of winequality-white from the tutorial).
+# Implement a function: wmape_metric to calculate wMAPE metric as the loss function (rmse_metric function gives an example for mse metric).
+# Implement a function: coefficients_sgd_wmape to calculate coefficients in terms of wMAPE loss. (coefficients_sgd gives an example for the mse loss)
+# Replace wmape_metric function for rmse_metric function and coefficients_sgd_wmape function for coefficients_sgd function to replace wmape metric with mse metric.
+# Try different learning rates (l_rate) and n_epoch and see whats the minimum wMAPE you can achieve!
+#
